@@ -42,13 +42,11 @@
     'verified',
   ]);
 
-  const STORAGE_KEY = 'igScraper:followers';
-
   const users = new Map();
   window.__igUsers = users;
 
   let listType = 'unknown';
-  let storedFollowers = null;
+  let knownFollowers = null;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -75,24 +73,6 @@
     }
 
     return RESERVED_PATHS.has(match[1]) ? null : match[1];
-  };
-
-  const loadStoredFollowers = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-
-      return raw ? new Set(JSON.parse(raw)) : null;
-    } catch (error) {
-      return null;
-    }
-  };
-
-  const saveFollowers = () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...users.keys()]));
-    } catch (error) {
-      console.warn('Could not save the followers list to localStorage.');
-    }
   };
 
   // Reads the Follow / Following / Requested / Follow back button of a row.
@@ -129,7 +109,7 @@
   // true = we follow each other, false = we don't, null = unknown.
   const resolveFollowBack = (username, anchor) => {
     if (listType === 'following') {
-      return storedFollowers ? storedFollowers.has(username) : null;
+      return knownFollowers ? knownFollowers.has(username) : null;
     }
 
     if (listType === 'followers') {
@@ -235,12 +215,16 @@
     });
     const link = document.createElement('a');
 
-    link.href = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+
+    link.href = url;
     link.download = `instagram-${listType}-${date}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(link.href);
+
+    // Revoking right away can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
   let stopped = false;
@@ -259,14 +243,18 @@
     }
 
     listType = detectListType(dialog);
-    storedFollowers = loadStoredFollowers();
+    knownFollowers = window.__igFollowers || null;
 
     console.log(`Detected list type: ${listType}`);
 
-    if (listType === 'following' && !storedFollowers) {
+    if (listType === 'following' && knownFollowers) {
+      console.log(`Using ${knownFollowers.size} followers collected earlier in this tab.`);
+    }
+
+    if (listType === 'following' && !knownFollowers) {
       console.warn(
-        'No saved followers list found, so followBack will be null. ' +
-          'Run the script on your Followers list first, then on Following.',
+        'No followers list collected in this tab yet, so followBack will be null. ' +
+        'Run the script on your Followers list first (without reloading the page), then on Following.',
       );
     }
 
@@ -303,8 +291,12 @@
 
     console.log(`Done. ${users.size} users. Downloading JSON...`);
     if (listType === 'followers') {
-      saveFollowers();
+      // Kept in memory only, so the Following run in this tab can compare against it.
+      window.__igFollowers = new Set(users.keys());
     }
+
+    // Retry from the console if the browser blocks the automatic download.
+    window.__igDownload = () => download(listType);
 
     download(listType);
   };
