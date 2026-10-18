@@ -1,0 +1,7 @@
+# Exported Instagram data and comparison results (personal data)
+*.json
+
+# Keep project config files if they are added later
+!package.json
+!package-lock.json
+!tsconfig.json
